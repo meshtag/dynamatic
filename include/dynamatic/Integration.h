@@ -43,6 +43,7 @@
 #if defined(PRINT_PROFILING_INFO) || defined(HLS_VERIFICATION)
 #include <cstddef>
 #include <ostream>
+#include <sstream>
 #include <type_traits>
 
 using OS = std::basic_ostream<char>;

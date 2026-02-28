@@ -25,13 +25,63 @@ LLVM=$DYNAMATIC_DIR/llvm-project
 DYNAMATIC_BINS=$DYNAMATIC_DIR/bin
 export PATH=$PATH:$DYNAMATIC_BINS
 
-CLANGXX_BIN="$DYNAMATIC_DIR/bin/clang++"
-LLVM_OPT="$DYNAMATIC_BINS/opt"
-LLVM_TO_STD_TRANSLATION_BIN="$DYNAMATIC_DIR/build/bin/translate-llvm-to-std"
-DYNAMATIC_OPT_BIN="$DYNAMATIC_DIR/bin/dynamatic-opt"
-DYNAMATIC_PROFILER_BIN="$DYNAMATIC_DIR/bin/exp-frequency-profiler"
-DYNAMATIC_EXPORT_DOT_BIN="$DYNAMATIC_DIR/bin/export-dot"
-DYNAMATIC_EXPORT_CFG_BIN="$DYNAMATIC_DIR/bin/export-cfg"
+resolve_bin() {
+  local tool_name="$1"
+  if [[ -x "$DYNAMATIC_DIR/build/bin/$tool_name" ]]; then
+    echo "$DYNAMATIC_DIR/build/bin/$tool_name"
+    return 0
+  fi
+  if [[ -x "$DYNAMATIC_DIR/bin/$tool_name" ]]; then
+    echo "$DYNAMATIC_DIR/bin/$tool_name"
+    return 0
+  fi
+  if command -v "$tool_name" >/dev/null 2>&1; then
+    command -v "$tool_name"
+    return 0
+  fi
+  return 1
+}
+
+resolve_plugin() {
+  local plugin_name="$1"
+  if [[ -f "$DYNAMATIC_DIR/build/lib/$plugin_name.dylib" ]]; then
+    echo "$DYNAMATIC_DIR/build/lib/$plugin_name.dylib"
+    return 0
+  fi
+  if [[ -f "$DYNAMATIC_DIR/build/lib/$plugin_name.so" ]]; then
+    echo "$DYNAMATIC_DIR/build/lib/$plugin_name.so"
+    return 0
+  fi
+  return 1
+}
+
+sed_inplace() {
+  local expr="$1"
+  local file="$2"
+  if sed --version >/dev/null 2>&1; then
+    sed -i "$expr" "$file"
+  else
+    sed -i '' "$expr" "$file"
+  fi
+}
+
+CLANG_BIN=$(resolve_bin clang)
+LLVM_OPT=$(resolve_bin opt)
+LLVM_TO_STD_TRANSLATION_BIN=$(resolve_bin translate-llvm-to-std)
+DYNAMATIC_OPT_BIN=$(resolve_bin dynamatic-opt)
+DYNAMATIC_PROFILER_BIN=$(resolve_bin exp-frequency-profiler)
+DYNAMATIC_EXPORT_DOT_BIN=$(resolve_bin export-dot)
+DYNAMATIC_EXPORT_CFG_BIN=$(resolve_bin export-cfg)
+MEM_DEP_PLUGIN=$(resolve_plugin MemDepAnalysis)
+
+[[ -x "$CLANG_BIN" ]] || { echo_fatal "Could not find 'clang'"; exit 1; }
+[[ -x "$LLVM_OPT" ]] || { echo_fatal "Could not find 'opt'"; exit 1; }
+[[ -x "$LLVM_TO_STD_TRANSLATION_BIN" ]] || { echo_fatal "Could not find 'translate-llvm-to-std'"; exit 1; }
+[[ -x "$DYNAMATIC_OPT_BIN" ]] || { echo_fatal "Could not find 'dynamatic-opt'"; exit 1; }
+[[ -x "$DYNAMATIC_PROFILER_BIN" ]] || { echo_fatal "Could not find 'exp-frequency-profiler'"; exit 1; }
+[[ -x "$DYNAMATIC_EXPORT_DOT_BIN" ]] || { echo_fatal "Could not find 'export-dot'"; exit 1; }
+[[ -x "$DYNAMATIC_EXPORT_CFG_BIN" ]] || { echo_fatal "Could not find 'export-cfg'"; exit 1; }
+[[ -f "$MEM_DEP_PLUGIN" ]] || { echo_fatal "Could not find MemDepAnalysis plugin in build/lib"; exit 1; }
 
 RIGIDIFICATION_SH="$DYNAMATIC_DIR/experimental/tools/rigidification/rigidification.sh"
 
@@ -113,7 +163,7 @@ rm -rf "$COMP_DIR" && mkdir -p "$COMP_DIR"
 # optimizations, e.g., loop unrolling:
 # https://clang.llvm.org/docs/LanguageExtensions.html#loop-unrolling
 # ------------------------------------------------------------------------------
-$DYNAMATIC_BINS/clang -O0 -funroll-loops -S -emit-llvm "$F_C_SOURCE" \
+"$CLANG_BIN" -O0 -funroll-loops -S -emit-llvm "$F_C_SOURCE" \
   -I "$DYNAMATIC_DIR/include"  \
   -Xclang \
   -ffp-contract=off \
@@ -129,13 +179,13 @@ exit_on_fail "Failed to compile to LLVM IR" \
 # way to ignore it
 # - Clang always adds "noinline" to the IR.
 # ------------------------------------------------------------------------------
-sed -i "s/optnone//g" "$F_CLANG"
-sed -i "s/noinline//g" "$F_CLANG"
+sed_inplace "s/optnone//g" "$F_CLANG"
+sed_inplace "s/noinline//g" "$F_CLANG"
 
 # Strip information that we don't care (and mlir-translate also doesn't know how
 # to handle it).
-sed -i "s/^target datalayout = .*$//g" "$F_CLANG"
-sed -i "s/^target triple = .*$//g" "$F_CLANG"
+sed_inplace "s/^target datalayout = .*$//g" "$F_CLANG"
+sed_inplace "s/^target triple = .*$//g" "$F_CLANG"
 
 # ------------------------------------------------------------------------------
 # NOTE:
@@ -187,7 +237,7 @@ exit_on_fail "Failed to apply optimization to LLVM IR" \
 # we need to first attach analysis results to memory ops and then apply memory
 # bank partition.
 $LLVM_OPT -S \
-  -load-pass-plugin "$DYNAMATIC_DIR/build/lib/MemDepAnalysis.so" \
+  -load-pass-plugin "$MEM_DEP_PLUGIN" \
   -passes="mem-dep-analysis" \
   -polly-process-unprofitable \
   "$F_CLANG_OPTIMIZED" \

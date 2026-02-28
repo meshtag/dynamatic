@@ -17,7 +17,7 @@ SIMULATOR_NAME=$7
 HDL_TYPE=$8
 
 # Generated directories/files
-SIM_DIR="$(realpath "$OUTPUT_DIR/sim")"
+SIM_DIR="$OUTPUT_DIR/sim"
 C_SRC_DIR="$SIM_DIR/C_SRC"
 C_OUT_DIR="$SIM_DIR/C_OUT"
 COSIM_HDL_SRC_DIR="$SIM_DIR/HDL_SRC"
@@ -26,11 +26,31 @@ INPUT_VECTORS_DIR="$SIM_DIR/INPUT_VECTORS"
 HLS_VERIFY_DIR="$SIM_DIR/HLS_VERIFY"
 IO_GEN_BIN="$SIM_DIR/C_SRC/$KERNEL_NAME-io-gen"
 
+resolve_bin() {
+  local tool_name="$1"
+  if command -v "$tool_name" >/dev/null 2>&1; then
+    command -v "$tool_name"
+    return 0
+  fi
+  if [[ -x "$DYNAMATIC_DIR/build/bin/$tool_name" ]]; then
+    echo "$DYNAMATIC_DIR/build/bin/$tool_name"
+    return 0
+  fi
+  if [[ -x "$DYNAMATIC_DIR/bin/$tool_name" ]]; then
+    echo "$DYNAMATIC_DIR/bin/$tool_name"
+    return 0
+  fi
+  return 1
+}
+
 # Shortcuts
 HDL_DIR="$OUTPUT_DIR/hdl"
-CLANGXX_BIN="$DYNAMATIC_DIR/bin/clang++"
-HLS_VERIFIER_BIN="$DYNAMATIC_DIR/bin/hls-verifier"
+CLANGXX_BIN=$(resolve_bin clang++)
+HLS_VERIFIER_BIN=$(resolve_bin hls-verifier)
 RESOURCE_DIR="$DYNAMATIC_DIR/tools/hls-verifier/resources"
+
+[[ -x "$CLANGXX_BIN" ]] || { echo_fatal "Could not find 'clang++'"; exit 1; }
+[[ -x "$HLS_VERIFIER_BIN" ]] || { echo_fatal "Could not find 'hls-verifier'"; exit 1; }
 
 # ============================================================================ #
 # Simulation flow
@@ -82,7 +102,7 @@ fi
 # simulation
 "$CLANGXX_BIN" "$SRC_DIR/$KERNEL_NAME.c" -D HLS_VERIFICATION \
   -DHLS_VERIFICATION_PATH="$SIM_DIR" -I "$DYNAMATIC_DIR/include" \
-  -Wno-deprecated -o "$IO_GEN_BIN"
+  -std=c++17 -Wno-deprecated -o "$IO_GEN_BIN"
 exit_on_fail "Failed to build kernel for IO gen." "Built kernel for IO gen." 
 
 # Generate IO
@@ -91,6 +111,11 @@ exit_on_fail "Failed to run kernel for IO gen." "Ran kernel for IO gen."
 
 # Simulate and verify design
 echo_info "Launching simulation ($SIMULATOR_NAME)"
+if ! command -v "$SIMULATOR_NAME" >/dev/null 2>&1; then
+  echo_fatal "Simulator '$SIMULATOR_NAME' not found in PATH. Install one of: vsim, ghdl, xsim, verilator."
+  exit 1
+fi
+
 cd "$HLS_VERIFY_DIR"
 if [ "$VIVADO_FPU" = "true" ]; then
   "$HLS_VERIFIER_BIN" \

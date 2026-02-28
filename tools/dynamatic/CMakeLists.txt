@@ -7,6 +7,7 @@ add_llvm_tool(dynamatic
 )
 
 llvm_update_compile_flags(dynamatic)
+target_compile_definitions(dynamatic PRIVATE DYNAMATIC_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(dynamatic
   PRIVATE
   DynamaticSupport

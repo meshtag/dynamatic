@@ -101,7 +101,14 @@ struct FrontendState {
   std::optional<std::string> sourcePath = std::nullopt;
   std::string outputDir = "out";
 
-  FrontendState(StringRef cwd) : cwd(cwd), dynamaticPath(cwd) {};
+  FrontendState(StringRef cwd)
+      : cwd(cwd),
+#ifdef DYNAMATIC_ROOT
+        dynamaticPath(DYNAMATIC_ROOT)
+#else
+        dynamaticPath(cwd)
+#endif
+  {};
 
   bool sourcePathIsSet(StringRef keyword);
 
@@ -567,11 +574,11 @@ CommandResult SetDynamaticPath::execute(CommandArguments &args) {
   if (StringRef(dynamaticPath).ends_with(sep))
     dynamaticPath = dynamaticPath.substr(0, dynamaticPath.size() - 1);
 
-  if (!fs::exists(dynamaticPath + sep + "bin" + sep + "dynamatic")) {
-    llvm::outs()
-        << ERR
-        << "No 'dynamatic' executable found in bin/, Dynamatic doesn't "
-           "seem to have been built.\n";
+  if (!fs::exists(dynamaticPath + sep + "tools" + sep + "dynamatic" + sep +
+                  "scripts")) {
+    llvm::outs() << ERR
+                 << "No 'tools/dynamatic/scripts' directory found, please "
+                    "specify Dynamatic's top-level source directory.\n";
     return CommandResult::FAIL;
   }
 
@@ -638,8 +645,16 @@ CommandResult SetSrc::execute(CommandArguments &args) {
   }
 
   std::string sourcePath = args.positionals.front().str();
+  std::string absSourcePath = state.makeAbsolutePath(sourcePath);
+  if (!fs::exists(absSourcePath) && !path::is_absolute(sourcePath)) {
+    // Also accept paths relative to Dynamatic's source root.
+    SmallString<128> relToRoot(state.dynamaticPath);
+    path::append(relToRoot, sourcePath);
+    absSourcePath = relToRoot.str().str();
+  }
+
   StringRef srcName = path::filename(sourcePath);
-  if (!fs::exists(sourcePath)) {
+  if (!fs::exists(absSourcePath)) {
     llvm::outs() << ERR << "Source path <<" << sourcePath
                  << ">> does not exist. Kindly enter a valid source path\n";
     return CommandResult::FAIL;
@@ -652,7 +667,7 @@ CommandResult SetSrc::execute(CommandArguments &args) {
     return CommandResult::FAIL;
   }
 
-  state.sourcePath = state.makeAbsolutePath(sourcePath);
+  state.sourcePath = absSourcePath;
   return CommandResult::SUCCESS;
 }
 
